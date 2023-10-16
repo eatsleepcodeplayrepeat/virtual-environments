@@ -190,6 +190,8 @@ build {
                         "${path.root}/scripts/installers/azure-devops-cli.sh",
                         "${path.root}/scripts/installers/bicep.sh",
                         "${path.root}/scripts/installers/aliyun-cli.sh",
+                        // Has systemctl commands
+                        // "${path.root}/scripts/installers/apache.sh",
                         "${path.root}/scripts/installers/aws.sh",
                         "${path.root}/scripts/installers/clang.sh",
                         "${path.root}/scripts/installers/swift.sh",
