@@ -10,8 +10,7 @@
                 "3.7.*",
                 "3.8.*",
                 "3.9.*",
-                "3.10.*",
-                "3.11.*"
+                "3.10.*"
             ]
         },
         {
@@ -253,7 +252,9 @@
             "7.0"
         ],
         "tools": [
-            { "name": "nbgv", "test": "nbgv --version", "getversion" : "nbgv --version" }
+            { "name": "nbgv", "test": "nbgv --version", "getversion" : "nbgv --version" },
+            { "name": "Octopus.DotNet.Cli", "test": "octo --version", "getversion" : "octo --version" },
+            { "name": "GitVersion.Tool", "test": "gitversion /version", "getversion" : "gitversion /version" }
         ]
     },
     "clang": {
