@@ -1,0 +1,12 @@
+trigger: none
+pr:
+  autoCancel: true
+  branches:
+    include:
+    - main
+
+jobs:
+- template: image-generation-docker.yml
+  parameters:
+    image_type: ubuntu2204-docker
+    image_readme_name: Ubuntu2204-Readme.md
