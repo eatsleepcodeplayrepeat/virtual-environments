@@ -44,47 +44,47 @@ rm /etc/apt/preferences.d/dotnet
 apt-get update
 
 # Get list of all released SDKs from channels which are not end-of-life or preview
-sdks=()
-for version in ${DOTNET_VERSIONS[@]}; do
-    release_url="https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/${version}/releases.json"
-    download_with_retries "${release_url}" "." "${version}.json"
-    releases=$(cat "./${version}.json")
-    if [[ $version == "6.0" ]]; then
-        sdks=("${sdks[@]}" $(echo "${releases}" | jq -r 'first(.releases[].sdks[]?.version | select(contains("preview") or contains("rc") | not))'))
-    else
-        sdks=("${sdks[@]}" $(echo "${releases}" | jq -r '.releases[].sdk.version | select(contains("preview") or contains("rc") | not)'))
-        sdks=("${sdks[@]}" $(echo "${releases}" | jq -r '.releases[].sdks[]?.version | select(contains("preview") or contains("rc") | not)'))
-    fi
-    rm ./${version}.json
-done
+# sdks=()
+# for version in ${DOTNET_VERSIONS[@]}; do
+#     release_url="https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/${version}/releases.json"
+#     download_with_retries "${release_url}" "." "${version}.json"
+#     releases=$(cat "./${version}.json")
+#     if [[ $version == "6.0" ]]; then
+#         sdks=("${sdks[@]}" $(echo "${releases}" | jq -r 'first(.releases[].sdks[]?.version | select(contains("preview") or contains("rc") | not))'))
+#     else
+#         sdks=("${sdks[@]}" $(echo "${releases}" | jq -r '.releases[].sdk.version | select(contains("preview") or contains("rc") | not)'))
+#         sdks=("${sdks[@]}" $(echo "${releases}" | jq -r '.releases[].sdks[]?.version | select(contains("preview") or contains("rc") | not)'))
+#     fi
+#     rm ./${version}.json
+# done
 
-sortedSdks=$(echo ${sdks[@]} | tr ' ' '\n' | sort -r | uniq -w 5)
+# sortedSdks=$(echo ${sdks[@]} | tr ' ' '\n' | sort -r | uniq -w 5)
 
-extract_dotnet_sdk() {
-    local ARCHIVE_NAME="$1"
-    set -e
-    dest="./tmp-$(basename -s .tar.gz $ARCHIVE_NAME)"
-    echo "Extracting $ARCHIVE_NAME to $dest"
-    mkdir "$dest" && tar -C "$dest" -xzf "$ARCHIVE_NAME"
+# extract_dotnet_sdk() {
+#     local ARCHIVE_NAME="$1"
+#     set -e
+#     dest="./tmp-$(basename -s .tar.gz $ARCHIVE_NAME)"
+#     echo "Extracting $ARCHIVE_NAME to $dest"
+#     mkdir "$dest" && tar -C "$dest" -xzf "$ARCHIVE_NAME"
 
-    ############################# Trouble with rsync adding a / before ./ in the source path
-    rsync -qav --remove-source-files "$dest/shared/" /usr/share/dotnet/shared/
-    rsync -qav --remove-source-files "$dest/host/" /usr/share/dotnet/host/
-    rsync -qav --remove-source-files "$dest/sdk/" /usr/share/dotnet/sdk/
-    #############################
+#     ############################# Trouble with rsync adding a / before ./ in the source path
+#     rsync -qav --remove-source-files "$dest/shared/" /usr/share/dotnet/shared/
+#     rsync -qav --remove-source-files "$dest/host/" /usr/share/dotnet/host/
+#     rsync -qav --remove-source-files "$dest/sdk/" /usr/share/dotnet/sdk/
+#     #############################
 
-    rm -rf "$dest" "$ARCHIVE_NAME"
-}
+#     rm -rf "$dest" "$ARCHIVE_NAME"
+# }
 
-# Download/install additional SDKs in parallel
-export -f download_with_retries
-export -f extract_dotnet_sdk
+# # Download/install additional SDKs in parallel
+# export -f download_with_retries
+# export -f extract_dotnet_sdk
 
-parallel --jobs 0 --halt soon,fail=1 \
-    'url="https://dotnetcli.blob.core.windows.net/dotnet/Sdk/{}/dotnet-sdk-{}-linux-x64.tar.gz"; \
-    download_with_retries $url' ::: "${sortedSdks[@]}"
+# parallel --jobs 0 --halt soon,fail=1 \
+#     'url="https://dotnetcli.blob.core.windows.net/dotnet/Sdk/{}/dotnet-sdk-{}-linux-x64.tar.gz"; \
+#     download_with_retries $url' ::: "${sortedSdks[@]}"
 
-find . -name "*.tar.gz" | parallel --halt soon,fail=1 'extract_dotnet_sdk {}'
+# find . -name "*.tar.gz" | parallel --halt soon,fail=1 'extract_dotnet_sdk {}'
 
 # NuGetFallbackFolder at /usr/share/dotnet/sdk/NuGetFallbackFolder is warmed up by smoke test
 # Additional FTE will just copy to ~/.dotnet/NuGet which provides no benefit on a fungible machine
@@ -98,5 +98,9 @@ for dotnet_tool in ${DOTNET_TOOLS[@]}; do
     echo "Installing dotnet tool $dotnet_tool"
     dotnet tool install $dotnet_tool --tool-path '/etc/skel/.dotnet/tools'
 done
+
+echo '#!/bin/sh' >> /usr/bin/msbuild
+echo 'dotnet msbuild "$@"' >> /usr/bin/msbuild
+chmod +x /usr/bin/msbuild
 
 invoke_tests "DotnetSDK"

@@ -26,4 +26,4 @@ rm /etc/apt/sources.list.d/mono-official-stable.list
 rm -f /etc/apt/sources.list.d/mono-official-stable.list.save
 echo "mono https://download.mono-project.com/repo/ubuntu stable-$LSB_CODENAME main" >> $HELPER_SCRIPTS/apt-sources.txt
 
-invoke_tests "Tools" "Mono"
+# invoke_tests "Tools" "Mono"

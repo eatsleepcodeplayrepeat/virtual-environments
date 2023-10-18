@@ -8,6 +8,16 @@ variable "tag" {
   default = "jammy"
 }
 
+variable "targetarch" {
+  type    = string
+  default = "linux-x64"
+}
+
+variable "agent_toolsdirectory" {
+  type    = string
+  default = "/opt/hostedtoolcache"
+}
+
 variable "dockerhub_login" {
   type    = string
   default = "${env("DOCKERHUB_LOGIN")}"
@@ -48,6 +58,16 @@ variable "installer_script_folder" {
   default = "/imagegeneration/installers"
 }
 
+variable "pipeline_agent_folder" {
+  type    = string
+  default = "/azp"
+}
+
+variable "version" {
+  type    = string
+  default = "1.0.0"
+}
+
 packer {
   required_plugins {
     docker = {
@@ -61,12 +81,12 @@ source "docker" "build_image" {
   image  = "${var.repo}:${var.tag}"
   commit = true
   changes = [
-    "ENTRYPOINT /bin/bash"
+    "ENTRYPOINT ./start.sh"
   ]
 }
 
 build {
-  name = "ubuntu2204:latest"
+  name = "ubuntu2204"
   sources = [
     "source.docker.build_image"
   ]
@@ -114,6 +134,21 @@ build {
     script          = "${path.root}/scripts/base/limits.sh"
   }
 
+  provisioner "shell" {
+    execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
+    inline          = ["mkdir ${var.pipeline_agent_folder}"]
+  }
+
+  provisioner "file" {
+    destination = "${var.pipeline_agent_folder}/start.sh"
+    source      = "${path.root}/scripts/base/start.sh"
+  }
+
+  provisioner "shell" {
+    execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
+    inline          = ["chmod +x ${var.pipeline_agent_folder}/start.sh"]
+  }
+
   provisioner "file" {
     destination = "${var.helper_script_folder}"
     source      = "${path.root}/scripts/helpers"
@@ -150,37 +185,37 @@ build {
   }
 
   provisioner "shell" {
-    environment_vars = ["IMAGE_VERSION=${var.image_version}", "IMAGEDATA_FILE=${var.imagedata_file}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "IMAGE_VERSION=${var.image_version}", "IMAGEDATA_FILE=${var.imagedata_file}"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/preimagedata.sh"]
   }
 
   provisioner "shell" {
-    environment_vars = ["IMAGE_VERSION=${var.image_version}", "IMAGE_OS=${var.image_os}", "HELPER_SCRIPTS=${var.helper_script_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "IMAGE_VERSION=${var.image_version}", "IMAGE_OS=${var.image_os}", "HELPER_SCRIPTS=${var.helper_script_folder}"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/configure-environment-docker.sh"]
   }
 
   provisioner "shell" {
-    environment_vars = ["DEBIAN_FRONTEND=noninteractive", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "DEBIAN_FRONTEND=noninteractive", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/apt-vital.sh"]
   }
 
   provisioner "shell" {
-    environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/complete-snap-setup-docker.sh", "${path.root}/scripts/installers/powershellcore.sh"]
   }
 
   provisioner "shell" {
-    environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
     execute_command  = "sh -c '{{ .Vars }} pwsh -f {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/Install-PowerShellModules.ps1", "${path.root}/scripts/installers/Install-AzureModules.ps1"]
   }
 
   provisioner "shell" {
-    environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "DEBIAN_FRONTEND=noninteractive"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "DEBIAN_FRONTEND=noninteractive"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = [
                         "${path.root}/scripts/installers/action-archive-cache-docker.sh",
@@ -199,7 +234,7 @@ build {
                         "${path.root}/scripts/installers/codeql-bundle.sh",
                         "${path.root}/scripts/installers/containers.sh",
                         // rsync adds a / before ./ and then fails on no such directory
-                        "${path.root}/scripts/installers/dotnetcore-sdk.sh",
+                        "${path.root}/scripts/installers/dotnetcore-sdk-docker.sh",
                         "${path.root}/scripts/installers/firefox.sh",
                         "${path.root}/scripts/installers/microsoft-edge.sh",
                         "${path.root}/scripts/installers/gcc.sh",
@@ -247,8 +282,13 @@ build {
                         "${path.root}/scripts/installers/vcpkg.sh",
                         "${path.root}/scripts/installers/dpkg-config.sh",
                         "${path.root}/scripts/installers/yq.sh",
-                        // Failed for some reason
-                        "${path.root}/scripts/installers/android-docker.sh",
+                        // Tests failed for some reason
+                        //  [-] Sdkmanager from SDK tools is available 254ms (225ms|29ms)
+                        //       ubuntu2204:latest.docker.build_image:     Command '/usr/local/lib/android/sdk/tools/bin/sdkmanager --version' has finished with exit code
+                        //       ubuntu2204:latest.docker.build_image:         Exception in thread "main" java.lang.NoClassDefFoundError: javax/xml/bind/annotation/XmlSchema        at com.android.repository.api.SchemaModule$SchemaModuleVersion.<init>(SchemaModule.java:156)    at com.android.repository.api.SchemaModule.<init>(SchemaModule.java:75)       at com.android.sdklib.repository.AndroidSdkHandler.<clinit>(AndroidSdkHandler.java:81)  at com.android.sdklib.tool.sdkmanager.SdkManagerCli.main(SdkManagerCli.java:73)         at com.android.sdklib.tool.sdkmanager.SdkManagerCli.main(SdkManagerCli.java:48) Caused by: java.lang.ClassNotFoundException: javax.xml.bind.annotation.XmlSchema      at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:581)      at java.base/jdk.internal.loader.ClassLoaders$AppClassLoader.loadClass(ClassLoaders.java:178)         at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:527)      ... 5 more
+                        //       ubuntu2204:latest.docker.build_image:     at "$Sdkmanager --version" | Should -ReturnZeroExitCode, /imagegeneration/tests/Android.Tests.ps1:56
+                        //       ubuntu2204:latest.docker.build_image:     at <ScriptBlock>, /imagegeneration/tests/Android.Tests.ps1:56
+                        // "${path.root}/scripts/installers/android-docker.sh",
                         "${path.root}/scripts/installers/pypy.sh",
                         "${path.root}/scripts/installers/python-docker.sh",
                         "${path.root}/scripts/installers/zstd.sh"
@@ -256,28 +296,27 @@ build {
   }
 
   provisioner "shell" {
-    environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "DOCKERHUB_LOGIN=${var.dockerhub_login}", "DOCKERHUB_PASSWORD=${var.dockerhub_password}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "DOCKERHUB_LOGIN=${var.dockerhub_login}", "DOCKERHUB_PASSWORD=${var.dockerhub_password}"]
     execute_command  = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/docker-compose.sh", "${path.root}/scripts/installers/docker-docker.sh"]
   }
 
-  // Problems with Configure-Toolset
-  // provisioner "shell" {
-  //   environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
-  //   execute_command  = "sh -c '{{ .Vars }} pwsh -f {{ .Path }}'"
-  //   scripts          = ["${path.root}/scripts/installers/Install-Toolset-docker.ps1", "${path.root}/scripts/installers/Configure-Toolset.ps1"]
-  // }
+  provisioner "shell" {
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+    execute_command  = "sh -c '{{ .Vars }} pwsh -f {{ .Path }}'"
+    scripts          = ["${path.root}/scripts/installers/Install-Toolset-docker.ps1", "${path.root}/scripts/installers/Configure-Toolset.ps1"]
+  }
 
-  // Never tested
+  // Problem with path
   // provisioner "shell" {
-  //   environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+  //   environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
   //   execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
-  //   scripts          = ["${path.root}/scripts/installers/pipx-packages.sh"]
+  //   scripts          = ["${path.root}/scripts/installers/pipx-packages-docker.sh"]
   // }
 
   // Never tested
   // provisioner "shell" {
-  //   environment_vars = ["HELPER_SCRIPTS=${var.helper_script_folder}", "DEBIAN_FRONTEND=noninteractive", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+  //   environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPTS=${var.helper_script_folder}", "DEBIAN_FRONTEND=noninteractive", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
   //   execute_command  = "/bin/sh -c '{{ .Vars }} {{ .Path }}'"
   //   scripts          = ["${path.root}/scripts/installers/homebrew-docker.sh"]
   // }
@@ -295,25 +334,27 @@ build {
   //   scripts           = ["${path.root}/scripts/base/reboot.sh"]
   // }
 
-  provisioner "shell" {
-    execute_command     = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    pause_before        = "1m0s"
-    scripts             = ["${path.root}/scripts/installers/cleanup.sh"]
-    start_retry_timeout = "10m"
-  }
-
-  provisioner "shell" {
-    execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
-    script          = "${path.root}/scripts/base/apt-mock-remove-docker.sh"
-  }
-
+  // Failed on journalctl
   // provisioner "shell" {
-  //   environment_vars = ["IMAGE_VERSION=${var.image_version}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
-  //   inline           = ["pwsh -File ${var.image_folder}/SoftwareReport/SoftwareReport.Generator.ps1 -OutputDirectory ${var.image_folder}", "pwsh -File ${var.image_folder}/tests/RunAll-Tests.ps1 -OutputDirectory ${var.image_folder}"]
+  //   execute_command     = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
+  //   pause_before        = "1m0s"
+  //   scripts             = ["${path.root}/scripts/installers/cleanup.sh"]
+  //   start_retry_timeout = "10m"
+  // }
+
+  // Commenting to just get passed
+  // provisioner "shell" {
+  //   execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
+  //   script          = "${path.root}/scripts/base/apt-mock-remove-docker.sh"
   // }
 
   provisioner "shell" {
-    environment_vars = ["IMAGE_VERSION=${var.image_version}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "IMAGE_VERSION=${var.image_version}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
+    inline           = ["pwsh -File ${var.image_folder}/SoftwareReport/SoftwareReport.Generator.ps1 -OutputDirectory ${var.image_folder}", "pwsh -File ${var.image_folder}/tests/RunAll-Tests.ps1 -OutputDirectory ${var.image_folder}"]
+  }
+
+  provisioner "shell" {
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "IMAGE_VERSION=${var.image_version}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}"]
     inline           = ["pwsh -File ${var.image_folder}/SoftwareReport/SoftwareReport.Generator.ps1 -OutputDirectory ${var.image_folder}"]
   }
 
@@ -329,8 +370,9 @@ build {
     source      = "${var.image_folder}/software-report.json"
   }
 
+  // Commenting to just get passed
   provisioner "shell" {
-    environment_vars = ["HELPER_SCRIPT_FOLDER=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "IMAGE_FOLDER=${var.image_folder}"]
+    environment_vars = ["AGENT_TOOLSDIRECTORY=${var.agent_toolsdirectory}", "HELPER_SCRIPT_FOLDER=${var.helper_script_folder}", "INSTALLER_SCRIPT_FOLDER=${var.installer_script_folder}", "IMAGE_FOLDER=${var.image_folder}"]
     execute_command  = "sh -c '{{ .Vars }} {{ .Path }}'"
     scripts          = ["${path.root}/scripts/installers/post-deployment.sh"]
   }
@@ -354,4 +396,15 @@ build {
   //   execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
   //   inline          = ["sleep 30", "/usr/sbin/waagent -force -deprovision+user && export HISTSIZE=0 && sync"]
   // }
+
+  provisioner "shell" {
+    execute_command = "sh -c '{{ .Vars }} {{ .Path }}'"
+    inline          = ["cd /azp"]
+  }
+
+  post-processor "docker-tag" {
+    repository = "azdoagent"
+    tags       = ["latest", "${var.image_version}"]
+    only       = ["docker.build_image"]
+  }
 }
